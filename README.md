@@ -1,3 +1,5 @@
+因为本地没有GPU资源，所以将所有使用CUDA的地方都改成了CPU。
+
 <p align="center">
   <img src="https://github.com/meta-llama/llama3/blob/main/Llama3_Repo.jpeg" width="400"/>
 </p>
