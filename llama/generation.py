@@ -20,7 +20,8 @@ from llama.model import ModelArgs, Transformer
 from llama.tokenizer import ChatFormat, Dialog, Message, Tokenizer
 
 if torch.backends.mps.is_available():
-    device = torch.device("mps")
+    if torch.backends.mps.is_built():
+        device = torch.device("mps")
 elif torch.cuda.is_available():
     device = torch.device("cuda")
 else:
@@ -73,9 +74,9 @@ class Llama:
         """
         if not torch.distributed.is_initialized():
             if device == "cuda":
-                torch.distributed.init_process_group("nccl") //使用cuda
+                torch.distributed.init_process_group("nccl") #使用cuda
             else:
-                torch.distributed.init_process_group("gloo") //使用gloo
+                torch.distributed.init_process_group("gloo") #使用gloo
         if not model_parallel_is_initialized():
             if model_parallel_size is None:
                 model_parallel_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -83,7 +84,7 @@ class Llama:
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         if device == "cuda":
-            torch.cuda.set_device(local_rank) //当检测到cuda设备可用时
+            torch.cuda.set_device(local_rank) #当检测到cuda设备可用时
 
         # seed must be the same in all processes
         torch.manual_seed(seed)
@@ -116,10 +117,14 @@ class Llama:
         #     torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
         #不调用cuda的底层配置项
-        torch.set_default_tensor_type(torch.HalfTensor)
+        if device == "cuda":
+            torch.set_default_tensor_type(torch.cuda.HalfTensor)
+        else:
+            torch.set_default_tensor_type(torch.HalfTensor)
 
         model = Transformer(model_args)
         model.load_state_dict(checkpoint, strict=False)
+        model.to(device)
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
@@ -172,11 +177,16 @@ class Llama:
         for k, t in enumerate(prompt_tokens):
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device=device)
         if logprobs:
-            token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
+            token_logprobs = torch.zeros_like(tokens, dtype=torch.float, device=device)
 
         prev_pos = 0
         eos_reached = torch.tensor([False] * bsz, device=device)
         input_text_mask = tokens != pad_id
+
+        #
+        print("generation.py->generate->min_prompt_len:",min_prompt_len)
+        print("generation.py->generate->total_len:",total_len)
+
         if min_prompt_len == total_len:
             logits = self.model.forward(tokens, prev_pos)
             token_logprobs = -F.cross_entropy(
@@ -210,7 +220,9 @@ class Llama:
                     ignore_index=pad_id,
                 )
             eos_reached |= (~input_text_mask[:, cur_pos]) & (
-                torch.isin(next_token, stop_tokens)
+                # torch.isin(next_token, stop_tokens)
+                # 这里有问题
+                next_token == self.tokenizer.stop_tokens
             )
             prev_pos = cur_pos
             if all(eos_reached):

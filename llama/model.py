@@ -17,7 +17,8 @@ from torch import nn
 
 
 if torch.backends.mps.is_available():
-    device = torch.device("mps")
+    if torch.backends.mps.is_built():
+        device = torch.device("mps")
 elif torch.cuda.is_available():
     device = torch.device("cuda")
 else:
@@ -75,12 +76,18 @@ def apply_rotary_emb(
     xk: torch.Tensor,
     freqs_cis: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    #
+    # print("RMSNorm->apply_rotary_emb")
+    xq  = xq.to("cpu")
+    xk  = xk.to("cpu")
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
     freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
+    freqs_cis = freqs_cis.to("cpu")
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
     xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
-    return xq_out.type_as(xq), xk_out.type_as(xk)
+    return xq_out.type_as(xq).to(device), xk_out.type_as(xk).to(device)
 
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -134,16 +141,6 @@ class Attention(nn.Module):
             init_method=lambda x: x,
         )
 
-        # self.cache_k = torch.zeros(
-        #     (
-        #         args.max_batch_size,
-        #         args.max_seq_len,
-        #         self.n_local_kv_heads,
-        #         self.head_dim,
-        #     )
-        # ).cuda()
-
-        # 使用cpu的memory
         self.cache_k = torch.zeros(
             (
                 args.max_batch_size,
@@ -153,15 +150,6 @@ class Attention(nn.Module):
             )
         ).to(device)
 
-        # self.cache_v = torch.zeros(
-        #     (
-        #         args.max_batch_size,
-        #         args.max_seq_len,
-        #         self.n_local_kv_heads,
-        #         self.head_dim,
-        #     )
-        # ).cuda()
-        # 使用cpu的memory
         self.cache_v = torch.zeros(
             (
                 args.max_batch_size,
@@ -271,6 +259,8 @@ class TransformerBlock(nn.Module):
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
     ):
+        #调试
+        # print("model.py->TransformerBlock->forward")
         h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis, mask)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -304,10 +294,15 @@ class Transformer(nn.Module):
 
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
+        #调试
+        # print("model.py->Transformer->forward")
         _bsz, seqlen = tokens.shape
-        h = self.tok_embeddings(tokens)
+        h = self.tok_embeddings(tokens.to(device))
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+
+        #
+        # print("model.py->Transformer->forward->tokens.device: ",tokens.device)
 
         mask = None
         if seqlen > 1:
