@@ -38,6 +38,7 @@ def get_model():
     tokenizer.pad_token = tokenizer.eos_token
     # 从预训练的模型中获取模型，并设置模型参数
     model = AutoModelForCausalLM.from_pretrained(mode_name_or_path, torch_dtype=torch.float)
+    model.to(device)
   
     return tokenizer, model
 
@@ -74,12 +75,14 @@ if prompt := st.chat_input():
     
     # 构建输入
     input_str = bulid_input(prompt=prompt, history=st.session_state["messages"])
-    input_ids = tokenizer.encode(input_str, add_special_tokens=False, return_tensors='pt').cuda()
+    input_ids = tokenizer.encode(input_str, add_special_tokens=False, return_tensors='pt').to(device)
+    print("开始推理")
     outputs = model.generate(
         input_ids=input_ids, max_new_tokens=512, do_sample=True,
         top_p=0.9, temperature=0.5, repetition_penalty=1.1, eos_token_id=tokenizer.encode('<|eot_id|>')[0]
         )
     outputs = outputs.tolist()[0][len(input_ids[0]):]
+    print("输出推理结果")
     response = tokenizer.decode(outputs)
     response = response.strip().replace('<|eot_id|>', "").replace('<|start_header_id|>assistant<|end_header_id|>\n\n', '').strip()
 
