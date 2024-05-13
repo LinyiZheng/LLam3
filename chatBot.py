@@ -28,7 +28,7 @@ st.title("💬 LLaMA3 Chatbot")
 st.caption("🚀 A streamlit chatbot powered by Self-LLM")
 
 # 定义模型路径
-mode_name_or_path = './../LLM-Research/Meta-Llama-3-8B-Instruct'
+mode_name_or_path = './../huggingface'
 
 # 定义一个函数，用于获取模型和tokenizer
 @st.cache_resource
